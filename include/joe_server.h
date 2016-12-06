@@ -20,8 +20,8 @@ extern "C" {
 
 //  @interface
 //  Create a new joe_server
-JOE_EXPORT joe_server_t *
-    joe_server_new (void);
+JOE_EXPORT void
+        joe_server (zsock_t *pipe, void *args);
 
 //  Destroy the joe_server
 JOE_EXPORT void

@@ -20,40 +20,70 @@
 
 #include "joe_classes.h"
 
-//  Structure of our class
-
-struct _joe_server_t {
-    int filler;     //  Declare class properties here
-};
-
-
-//  --------------------------------------------------------------------------
-//  Create a new joe_server
-
-joe_server_t *
-joe_server_new (void)
+void joe_server (zsock_t *pipe, void *args)
 {
-    joe_server_t *self = (joe_server_t *) zmalloc (sizeof (joe_server_t));
-    assert (self);
-    //  Initialize class properties here
-    return self;
-}
+    char *name = strdup ((char*) args);
+    zsock_t *server = zsock_new_router (ENDPOINT);
+    zpoller_t *poller = zpoller_new (pipe, server, NULL);
+    int state = 0;
 
+    // to signal to runtime it should spawn the thread
+    zsock_signal (pipe, 0);
+    zsys_debug ("%s:\tstarted", name);
 
-//  --------------------------------------------------------------------------
-//  Destroy the joe_server
+    while (!zsys_interrupted) {
 
-void
-joe_server_destroy (joe_server_t **self_p)
-{
-    assert (self_p);
-    if (*self_p) {
-        joe_server_t *self = *self_p;
-        //  Free class properties here
-        //  Free object itself
-        free (self);
-        *self_p = NULL;
+        void *which = zpoller_wait (poller, -1);
+
+        if (!which)
+            break;
+
+        if (which == pipe) {
+            zmsg_t *msg = zmsg_recv (pipe);
+            char *command = zmsg_popstr (msg);
+            zsys_info ("Got API command=%s", command);
+            if (streq (command, "$TERM")) {
+                zstr_free (&command);
+                zmsg_destroy (&msg);
+                break;
+            }
+            zstr_free (&command);
+            zmsg_destroy (&msg);
+        }
+        else if (which == server) {
+            joe_proto_t *msg2 = joe_proto_new (); 
+            joe_proto_recv (msg2, server);
+            zframe_t *routing_id = joe_proto_routing_id (msg2);
+            joe_proto_print (msg2);
+
+            // server response
+            joe_proto_t *response = joe_proto_new ();
+            joe_proto_set_routing_id (response, routing_id);
+
+            int r = rand();
+            if (r < RAND_MAX / 5) {
+                joe_proto_set_id (response, JOE_PROTO_ERROR);
+                joe_proto_set_reason (response, "server not ready (random)");
+            }
+            else {
+                if (state == 0 && joe_proto_id (msg2) != JOE_PROTO_HELLO) {
+                    joe_proto_set_id (response, JOE_PROTO_ERROR);
+                    joe_proto_set_reason (response, "bad protocol");
+                }
+                else {
+                    state = 1;
+                    joe_proto_set_id (response, JOE_PROTO_READY);
+                }
+            }
+
+            joe_proto_destroy (&msg2);
+            joe_proto_send (response, server);
+        }
     }
+
+    zpoller_destroy (&poller);
+    zsock_destroy (&server);
+    zstr_free (&name);
 }
 
 //  --------------------------------------------------------------------------
@@ -66,9 +96,6 @@ joe_server_test (bool verbose)
 
     //  @selftest
     //  Simple create/destroy test
-    joe_server_t *self = joe_server_new ();
-    assert (self);
-    joe_server_destroy (&self);
     //  @end
     printf ("OK\n");
 }

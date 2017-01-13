@@ -1,0 +1,39 @@
+#!/bin/sh
+
+ID=$1
+
+if [ "$ID" = "" ] ; then
+    echo "usage: $0 machinename"
+    exit 1
+fi
+
+
+VM=$ID
+
+echo $VM
+XML=/tmp/$VM.xml
+sed  "s/REPLACE/$VM/" >$XML <<[eof]
+<domain type='lxc'>
+  <name>REPLACE</name>
+  <memory unit='KiB'>4190208</memory>
+  <os>
+    <type arch='x86_64'>exe</type>
+    <init>/sbin/init</init>
+  </os>
+  <clock offset='utc'/>
+  <devices>
+    <filesystem type='mount' accessmode='passthrough'>
+      <source dir='/home/lxc/REPLACE'/>
+      <target dir='/'/>
+    </filesystem>
+    <interface type='network'>
+      <source network='default'/>
+    </interface>
+    <console type='pty'/>
+  </devices>
+</domain>
+[eof]
+
+virsh -c lxc:/// define $XML
+rm -f $XML
+
